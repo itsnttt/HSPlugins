@@ -24,6 +24,7 @@ namespace Timeline
             private bool _addKey;
             private string _addQuery = "";
             private ObjectCtrlInfoRef _apFor;
+            private Studio.GuideObject _apNode;
 
             /// <summary>Which object the list was built for, so it is rebuilt when the selection changes.</summary>
             private sealed class ObjectCtrlInfoRef
@@ -172,12 +173,28 @@ namespace Timeline
 
             private bool Added(InterpolableModel model)
             {
-                foreach (Interpolable i in T._interpolables.Values)
+                return ExistingFor(model) != null;
+            }
+
+            /// <summary>
+            /// The track this model would add right now, if there is one already. A model that follows
+            /// the selected node (an IK or FK node, a bone) makes a different track for each node, so
+            /// the track is looked up as Timeline keys them - model, parameter and object - and not by
+            /// the model alone, which took one IK node's track for every other one's.
+            /// </summary>
+            private Interpolable ExistingFor(InterpolableModel model)
+            {
+                Interpolable probe;
+                try
                 {
-                    if (i.id == model.id && i.owner == model.owner && (i.oci == T._selectedOCI || i.oci == null && model.IsCompatibleWithTarget(null)))
-                        return true;
+                    probe = new Interpolable(T._selectedOCI, model);
                 }
-                return false;
+                catch (Exception)
+                {
+                    return null;
+                }
+                Interpolable existing;
+                return T._interpolables.TryGetValue(probe.GetHashCode(), out existing) ? existing : null;
             }
 
             /// <summary>addListHtml(): by plugin, each line the track, the plugin, and whether it is already added.</summary>
@@ -190,6 +207,7 @@ namespace Timeline
                 _apList.DetachChildren();
                 _apTo.text = "for " + (T._selectedOCI == null ? "the scene" : ObjectName(T._selectedOCI));
                 _apFor = new ObjectCtrlInfoRef { oci = T._selectedOCI };
+                _apNode = Studio.GuideObjectManager.Instance.selectObject;
 
                 if (T._selectedOCI == null)
                 {
@@ -238,7 +256,16 @@ namespace Timeline
                 c.normal = new Color(0f, 0f, 0f, 0f);
                 c.hover = Pal.accent;
                 c.pressed = c.hover;
-                Text name = Kit.Text("Nm", row.transform, Kit.Escape(model.name), 12, Pal.C(0xE4E7EC));
+                // A node track names the node it would be added for, the one selected in the scene.
+                string label = model.name;
+                try
+                {
+                    label = NodeTrackName(new Interpolable(T._selectedOCI, model)) ?? model.name;
+                }
+                catch (Exception)
+                {
+                }
+                Text name = Kit.Text("Nm", row.transform, Kit.Escape(label), 12, Pal.C(0xE4E7EC));
                 name.horizontalOverflow = HorizontalWrapMode.Wrap;
                 name.verticalOverflow = VerticalWrapMode.Truncate;
                 Kit.Flex(name.gameObject, 22f);
@@ -258,7 +285,7 @@ namespace Timeline
 
             private void AddModel(InterpolableModel model)
             {
-                Interpolable existing = T._interpolables.Values.FirstOrDefault(i => i.id == model.id && i.owner == model.owner && i.oci == T._selectedOCI);
+                Interpolable existing = ExistingFor(model);
                 if (existing != null)
                 {
                     T.SelectInterpolable(existing);
@@ -277,7 +304,8 @@ namespace Timeline
 
             private void TickAdd()
             {
-                if (_addp != null && _addp.gameObject.activeSelf && (_apFor == null || _apFor.oci != T._selectedOCI))
+                // A node track is added for the selected node, so picking another node changes the list too.
+                if (_addp != null && _addp.gameObject.activeSelf && (_apFor == null || _apFor.oci != T._selectedOCI || _apNode != Studio.GuideObjectManager.Instance.selectObject))
                     RenderAddList();
             }
             #endregion

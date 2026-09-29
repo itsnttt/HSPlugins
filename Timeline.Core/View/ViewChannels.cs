@@ -210,7 +210,62 @@ namespace Timeline
 
             public static string TrackName(Interpolable track)
             {
-                return string.IsNullOrEmpty(track.alias) ? track.name : track.alias;
+                if (string.IsNullOrEmpty(track.alias) == false)
+                    return track.alias;
+                return NodeTrackName(track) ?? track.name;
+            }
+
+            private static readonly string[] _bonePrefixes = { "cf_j_", "cf_t_", "cf_s_", "cf_d_", "cf_n_", "cm_j_", "cm_t_", "cf_J_", "cf_T_", "cf_N_", "N_" };
+
+            /// <summary>
+            /// A node track named after its node first, then what it moves: "IK Left Hand · Position",
+            /// "FK arm00_L · Rotation X". The stored name, "GO Position (cf_t_hand_L(work))", puts the
+            /// node last, where the narrow list cuts it off, and every node's track then reads the same.
+            /// The object's own node is just "Position".
+            /// </summary>
+            private static string NodeTrackName(Interpolable track)
+            {
+                GuideObject node = track.parameter as GuideObject;
+                if (node == null || node.transformTarget == null || track.owner != _ownerId || track.id.StartsWith("guideObject") == false)
+                    return null;
+                string prop = track.id.Substring("guideObject".Length);
+                string axis = "";
+                if (prop.Length > 0 && "XYZ".IndexOf(prop[prop.Length - 1]) >= 0)
+                {
+                    axis = " " + prop[prop.Length - 1];
+                    prop = prop.Substring(0, prop.Length - 1);
+                }
+                string what = prop == "Pos" ? "Position" : prop == "Rot" ? "Rotation" : prop == "Scale" ? "Scale" : null;
+                if (what == null)
+                    return null;
+                what += axis;
+                if (track.oci != null && track.oci.guideObject == node)
+                    return what;
+
+                string kind = "";
+                OCIChar character = track.oci as OCIChar;
+                if (character != null)
+                {
+                    if (character.listIKTarget.Any(ik => ik.guideObject == node))
+                        kind = "IK ";
+                    else if (character.listBones.Any(b => b.guideObject == node))
+                        kind = "FK ";
+                }
+                string bone = node.transformTarget.name;
+                string fancy = FancyBoneName(bone);
+                if (fancy == bone)
+                {
+                    fancy = bone.Replace("(work)", "");
+                    foreach (string prefix in _bonePrefixes)
+                    {
+                        if (fancy.StartsWith(prefix))
+                        {
+                            fancy = fancy.Substring(prefix.Length);
+                            break;
+                        }
+                    }
+                }
+                return kind + fancy + " · " + what;
             }
 
             public static string ObjectName(ObjectCtrlInfo oci)
