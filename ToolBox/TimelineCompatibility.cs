@@ -87,6 +87,15 @@ namespace ToolBox
         /// Tells Timeline that a combined transform track can be exchanged for three per axis ones, so it
         /// can offer Split and Merge on it. No-op on Timeline versions that predate the feature.
         /// </summary>
+        /// <summary>
+        /// Whether this Timeline splits transform tracks per axis. An older one has no idea a per axis
+        /// track stands in for a combined one, so the two would fight over the same value there.
+        /// </summary>
+        public static bool SupportsSplitTransforms
+        {
+            get { return _registerSplittableTransform != null; }
+        }
+
         public static void RegisterSplittableTransform(string owner, string combinedId, string[] splitIds)
         {
             if (_registerSplittableTransform == null)

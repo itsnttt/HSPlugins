@@ -1750,6 +1750,10 @@ namespace HSPE.AMModules
                 // _dirtyBones and the transform is not written until LateUpdate, so an axis reading
                 // localPosition would see the animator's pose instead of what the previous axis just
                 // wrote, and would overwrite it. Only the last axis of the three would survive.
+                // Only where Timeline splits transform tracks: with an older one the per axis tracks
+                // would sit next to the combined ones and fight them over the same bone.
+                if (ToolBox.TimelineCompatibility.SupportsSplitTransforms == false)
+                    return;
                 AddSplitAxes("bonePos", "Position",
                              pair => pair.key.GetBonePosition(pair.value),
                              (pair, v) => pair.key.SetBonePosition(pair.value, v));
