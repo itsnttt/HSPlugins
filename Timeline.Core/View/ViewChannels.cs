@@ -42,6 +42,8 @@ namespace Timeline
             public float y, h;
             public int c;
             public int lane;
+            /// <summary>The object whose NLA stack a lane or keys row belongs to.</summary>
+            public ObjectCtrlInfo oci;
         }
 
         internal sealed partial class View
@@ -432,6 +434,7 @@ namespace Timeline
                 public Text count;
                 public IconView eye;
                 public IconView lockIcon;
+                public IconView solo;
                 public Row row;
                 public int version = -1;
             }
@@ -473,6 +476,7 @@ namespace Timeline
 
                 v.eye = RowIcon(v, "Eye", () => ToggleEye(captured.row), "Show in Graph");
                 v.lockIcon = RowIcon(v, "Lock", () => ToggleLock(captured.row), "Lock against edits");
+                v.solo = RowIcon(v, "Solo", () => ToggleSolo(captured.row), "Solo: only the soloed lanes of this object play");
 
                 v.click.onDown = e => RowDown(captured, e);
                 RowDragHandler drag = bg.gameObject.AddComponent<RowDragHandler>();
@@ -604,7 +608,9 @@ namespace Timeline
                     axl.gameObject.SetActive(false);
 
                 bool icons = (r.type == RowType.Track || r.type == RowType.Object || r.type == RowType.Group || r.type == RowType.Axis) && editor != "nla";
-                float right = 6f + (icons ? 36f : 0f);
+                // A lane with strips mutes, solos and locks, as Blender's NLA tracks do.
+                bool laneIcons = r.type == RowType.Lane && r.lane <= T.TopLane(r.oci);
+                float right = 6f + (icons ? 36f : 0f) + (laneIcons ? 54f : 0f);
                 bool showCount = twisty && axisTwisty == false && IsCollapsed(r);
                 v.count.gameObject.SetActive(showCount);
                 if (showCount)
@@ -638,12 +644,22 @@ namespace Timeline
                             color = new Color(color.r, color.g, color.b, 0.4f);
                         break;
                     case RowType.Action:
-                        label = "Keyframes " + Kit.Dim("· not in a strip");
+                    {
+                        NlaStack stack = T.StackOf(r.oci);
+                        bool plain = stack.actionBlend == StripBlendMode.Replace && stack.actionInfluence >= 0.999f;
+                        label = "Keys " + Kit.Dim("· on top" + (plain ? "" : " · " + stack.actionBlend + " " + Mathf.RoundToInt(stack.actionInfluence * 100f) + "%"));
                         break;
+                    }
                     case RowType.Lane:
-                        int inLane = T._strips.Count(s => s.lane == r.lane);
-                        label = "Lane " + (r.lane + 1) + (inLane == 0 ? " " + Kit.Dim("· empty") : "");
+                    {
+                        NlaStack stack = T.StackOf(r.oci);
+                        NlaLane lane = stack.lanes.Find(l => l.index == r.lane);
+                        if (r.lane > T.TopLane(r.oci))
+                            label = Kit.Dim("New lane");
+                        else
+                            label = Kit.Escape(lane != null ? lane.DisplayName : "Track " + (r.lane + 1)) + (stack.Plays(r.lane) ? "" : " " + Kit.Dim("· off"));
                         break;
+                    }
                     default:
                         label = Kit.Escape(TrackName(r.tr));
                         string prop = PropOf(r.tr);
@@ -673,6 +689,27 @@ namespace Timeline
                     v.lockIcon.Set(allLocked ? "lock" : "unlock", allLocked ? Pal.accent : Pal.C(0x6B6E74));
                     // An axis row has the eye only: locking is for the whole track.
                     v.lockIcon.transform.parent.gameObject.SetActive(r.type != RowType.Axis);
+                }
+                v.solo.transform.parent.gameObject.SetActive(laneIcons);
+                if (laneIcons)
+                {
+                    NlaLane lane = T.StackOf(r.oci).lanes.Find(l => l.index == r.lane);
+                    bool mute = lane != null && lane.mute, solo = lane != null && lane.solo, lck = lane != null && lane.locked;
+                    v.eye.transform.parent.gameObject.SetActive(true);
+                    v.lockIcon.transform.parent.gameObject.SetActive(true);
+                    ((RectTransform)v.solo.transform.parent).Css(float.NaN, (h - 18f) / 2f, 6f + 36f, float.NaN, 18f, 18f);
+                    ((RectTransform)v.eye.transform.parent).Css(float.NaN, (h - 18f) / 2f, 6f + 18f, float.NaN, 18f, 18f);
+                    ((RectTransform)v.lockIcon.transform.parent).Css(float.NaN, (h - 18f) / 2f, 6f, float.NaN, 18f, 18f);
+                    v.solo.Set("target", solo ? Pal.accent : Pal.C(0x6B6E74));
+                    v.eye.Set(mute ? "eyeoff" : "eye", mute ? Pal.C(0x6B6E74) : Pal.C(0xC9CDD3));
+                    v.lockIcon.Set(lck ? "lock" : "unlock", lck ? Pal.accent : Pal.C(0x6B6E74));
+                    v.eye.transform.parent.GetComponent<Clickable>().tooltip = "Mute the lane";
+                    v.lockIcon.transform.parent.GetComponent<Clickable>().tooltip = "Lock the lane's strips against edits";
+                }
+                else if (icons)
+                {
+                    v.eye.transform.parent.GetComponent<Clickable>().tooltip = "Show in Graph";
+                    v.lockIcon.transform.parent.GetComponent<Clickable>().tooltip = "Lock against edits";
                 }
             }
 
@@ -794,6 +831,10 @@ namespace Timeline
                         })
                     });
                 }
+                else if (r.type == RowType.Lane)
+                    items.AddRange(LaneItems(r, FrameSnap(T._playbackTime)));
+                else if (r.type == RowType.Action)
+                    items.AddRange(ActionItems(r));
                 else
                     items.AddRange(ChannelItems());
                 return items;
@@ -859,6 +900,11 @@ namespace Timeline
 
             private void ToggleEye(Row r)
             {
+                if (r != null && r.type == RowType.Lane)
+                {
+                    EditLane(r, l => l.mute = !l.mute);
+                    return;
+                }
                 if (r != null && r.type == RowType.Axis)
                 {
                     T.ToggleComponent(r.tr, r.c);
@@ -869,8 +915,28 @@ namespace Timeline
                 ToggleSet(r, T._graphHiddenTracks);
             }
 
+            private void ToggleSolo(Row r)
+            {
+                if (r != null && r.type == RowType.Lane)
+                    EditLane(r, l => l.solo = !l.solo);
+            }
+
+            /// <summary>Changes a lane's settings, then shows and plays the result.</summary>
+            private void EditLane(Row r, Action<NlaLane> change)
+            {
+                change(T.StackOf(r.oci).Lane(r.lane));
+                ++_rowsVersion;
+                T.RefreshInterpolation();
+                Touch();
+            }
+
             private void ToggleLock(Row r)
             {
+                if (r != null && r.type == RowType.Lane)
+                {
+                    EditLane(r, l => l.locked = !l.locked);
+                    return;
+                }
                 ToggleSet(r, T._graphLockedTracks);
             }
 

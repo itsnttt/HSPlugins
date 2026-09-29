@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace Timeline
@@ -58,6 +59,8 @@ namespace Timeline
             public bool reverse;
             public float clipStart;
             public float clipEnd;
+            public Studio.ObjectCtrlInfo owner;
+            public KeyValuePair<float, float>[] influenceKeys;
             public List<ChannelState> channels;
         }
 
@@ -76,6 +79,9 @@ namespace Timeline
         {
             public List<TrackState> tracks;
             public List<StripState> strips;
+            /// <summary>The strip being edited then, and the tracks' own keys it had put aside.</summary>
+            public Nla.MotionStrip tweak;
+            public List<KeyValuePair<Interpolable, KeyValuePair<float, Keyframe>[]>> tweakStash;
             /// <summary>Copies, not the markers themselves: they are edited in place.</summary>
             public List<TimelineMarker> markers;
             /// <summary>The sets themselves, so identity survives, with what they were called then.</summary>
@@ -189,6 +195,9 @@ namespace Timeline
             return new HistoryState
             {
                 tracks = tracks, strips = CaptureStrips(), markers = markers, label = label,
+                tweak = _tweakStrip,
+                tweakStash = _tweakStash.Select(p => new KeyValuePair<Interpolable, KeyValuePair<float, Keyframe>[]>(p.Key,
+                        p.Value.Select(k => new KeyValuePair<float, Keyframe>(k.Key, new Keyframe(k.Value))).ToArray())).ToList(),
                 keySets = new List<KeySet>(_keySets),
                 keySetNames = _keySets.ConvertAll(s => s.name).ToArray(),
                 keySetColors = _keySets.ConvertAll(s => s.color).ToArray()
@@ -218,6 +227,8 @@ namespace Timeline
                     reverse = strip.reverse,
                     clipStart = strip.clipStart,
                     clipEnd = strip.clipEnd,
+                    owner = strip.owner,
+                    influenceKeys = strip.influenceKeys.ToArray(),
                     channels = new List<ChannelState>(strip.clip.channels.Count)
                 };
 
@@ -272,6 +283,14 @@ namespace Timeline
                 strip.reverse = state.reverse;
                 strip.clipStart = state.clipStart;
                 strip.clipEnd = state.clipEnd;
+                strip.owner = state.owner;
+                strip.influenceKeys.Clear();
+                if (state.influenceKeys != null)
+                {
+                    foreach (KeyValuePair<float, float> key in state.influenceKeys)
+                        strip.influenceKeys[key.Key] = key.Value;
+                }
+                AddToLibrary(strip.clip);
 
                 foreach (ChannelState channelState in state.channels)
                 {
@@ -340,6 +359,14 @@ namespace Timeline
                 }
 
                 RestoreStrips(state.strips);
+                // Tweak mode as it was: the strip then being edited, and the tracks' own keys put aside.
+                _tweakStrip = state.tweak != null && _strips.Contains(state.tweak) ? state.tweak : null;
+                _tweakStash.Clear();
+                if (_tweakStrip != null && state.tweakStash != null)
+                {
+                    foreach (KeyValuePair<Interpolable, KeyValuePair<float, Keyframe>[]> pair in state.tweakStash)
+                        _tweakStash[pair.Key] = pair.Value.Select(k => new KeyValuePair<float, Keyframe>(k.Key, new Keyframe(k.Value))).ToList();
+                }
 
                 if (state.keySets != null)
                 {

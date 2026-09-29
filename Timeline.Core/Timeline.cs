@@ -1764,8 +1764,7 @@ namespace Timeline
         {
             // History from the previous scene refers to tracks that no longer belong to anything.
             ClearHistory();
-            _strips.Clear();
-            CloseStripWindow();
+            ClearStrips();
             // These hold tracks from the scene being replaced, which are about to stop existing.
             _graphHiddenTracks.Clear();
             _graphLockedTracks.Clear();

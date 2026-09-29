@@ -75,6 +75,7 @@ namespace Timeline
             _pickerPages.Clear();
             _pickerPage = 0;
             ClearTrimRange();
+            ClearStrips();
             _selectedInterpolables.Clear();
             _selectedKeyframes.Clear();
             _duration = 10f;

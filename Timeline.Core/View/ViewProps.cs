@@ -693,7 +693,9 @@ namespace Timeline
                     EmptyPanel("No strip selected", "Click a strip in the NLA tab. To make one, select tracks and use Add › Push down, or the button in the Track tab.");
                     return;
                 }
-                PHead(Pal.Hex(0x9C7BE0), s.clip.name, "Lane " + (s.lane + 1) + " · " + s.clip.channels.Count + " track(s)");
+                int users = T.UsersOf(s.clip);
+                NlaLane lane = T.StackOf(s.owner).lanes.Find(l => l.index == s.lane);
+                PHead(Pal.Hex(0x9C7BE0), s.clip.name, (lane != null ? lane.DisplayName : "Track " + (s.lane + 1)) + " · " + s.clip.channels.Count + " track(s)" + (users > 1 ? " · clip played by " + users + " strips" : ""));
 
                 RectTransform sect = Sect();
                 Cap(sect, "PLACEMENT", null);
@@ -703,13 +705,40 @@ namespace Timeline
                 line = Line(sect);
                 Fld(line, "Repeat", 0x9A9DA2, s.repeat.ToString(), null, v => EditStrip(() => s.repeat = Mathf.Max(1, Mathf.RoundToInt(Parse(v, s.repeat)))));
 
+                // CLIP: which part of the clip plays, Blender's action extents.
+                sect = Sect();
+                Cap(sect, "CLIP", Fmt(s.clip.length) + " s long");
+                line = Line(sect);
+                Fld(line, "From", 0x9A9DA2, Fmt(s.effectiveClipStart), "s", v => EditStrip(() => s.clipStart = Mathf.Clamp(Parse(v, s.effectiveClipStart), 0f, s.effectiveClipEnd - 0.01f)));
+                Fld(line, "To", 0x9A9DA2, Fmt(s.effectiveClipEnd), "s", v => EditStrip(() => s.clipEnd = Mathf.Clamp(Parse(v, s.effectiveClipEnd), s.effectiveClipStart + 0.01f, s.clip.length)));
+                line = Line(sect);
+                Btn(line, "Sync length", true, () => { T.SyncClipLength(s); Touch(); }, "The whole clip again, as long as its keys go");
+                if (users > 1)
+                    Btn(line, "Make single user", true, () => { T.MakeSingleUser(s); Touch(); }, "A copy of the clip for this strip alone, so editing it leaves the others be");
+
                 sect = Sect();
                 Cap(sect, "BLENDING", null);
                 Segw(sect, new[] { "Replace", "Add", "Subtract", "Multiply" }, (int)s.blendMode, idx => EditStrip(() => s.blendMode = (StripBlendMode)idx));
                 line = Line(sect);
                 Kit.Text("L", line, "Influence", 11, Pal.C(0x9A9DA2)).gameObject.AddComponent<LayoutElement>().preferredWidth = 58f;
-                Slider(line, s.influence, v => EditStrip(() => s.influence = v));
-                Kit.Text("V", line, Mathf.RoundToInt(s.influence * 100f) + " %", 11, Pal.C(0xE4E7EC), TextAnchor.MiddleRight).gameObject.AddComponent<LayoutElement>().preferredWidth = 36f;
+                float shown = s.InfluenceAt(T._playbackTime);
+                // With influence keys the slider keys it at the playhead, as a keyed property does.
+                Slider(line, shown, v =>
+                {
+                    if (s.influenceKeys.Count != 0)
+                    {
+                        T.KeyInfluence(s, T._playbackTime, v);
+                        T.RefreshInterpolation();
+                        Touch();
+                    }
+                    else
+                        EditStrip(() => s.influence = v);
+                });
+                Kit.Text("V", line, Mathf.RoundToInt(shown * 100f) + " %", 11, Pal.C(0xE4E7EC), TextAnchor.MiddleRight).gameObject.AddComponent<LayoutElement>().preferredWidth = 36f;
+                line = Line(sect);
+                Btn(line, "◆ Key influence", true, () => { T.KeyInfluence(s, T._playbackTime, s.InfluenceAt(T._playbackTime)); T.RefreshInterpolation(); Touch(); }, "Key the influence at the playhead, to fade the strip over time");
+                if (s.influenceKeys.Count != 0)
+                    Btn(line, "Clear keys (" + s.influenceKeys.Count + ")", true, () => EditStrip(() => s.influenceKeys.Clear()), null);
                 line = Line(sect);
                 Fld(line, "Fade in", 0x9A9DA2, Fmt(s.blendIn), "s", v => EditStrip(() => s.blendIn = Mathf.Max(0f, Parse(v, s.blendIn))));
                 Fld(line, "Fade out", 0x9A9DA2, Fmt(s.blendOut), "s", v => EditStrip(() => s.blendOut = Mathf.Max(0f, Parse(v, s.blendOut))));

@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Studio;
 using UnityEngine;
 
 namespace Timeline.Nla
@@ -36,6 +37,20 @@ namespace Timeline.Nla
         public string name = "Clip";
         public float length;
         public readonly List<ClipChannel> channels = new List<ClipChannel>();
+
+        /// <summary>A clip of its own with the same keys, for a strip that should stop sharing.</summary>
+        public MotionClip Copy(string newName)
+        {
+            var copy = new MotionClip { name = newName, length = length };
+            foreach (ClipChannel channel in channels)
+            {
+                var c = new ClipChannel(channel.target);
+                foreach (KeyValuePair<float, Keyframe> pair in channel.keyframes)
+                    c.keyframes.Add(pair.Key, new Keyframe(pair.Value, channel.target));
+                copy.channels.Add(c);
+            }
+            return copy;
+        }
     }
 
     /// <summary>The left, right and factor triple a channel resolves to at some time.</summary>
@@ -58,6 +73,8 @@ namespace Timeline.Nla
     internal sealed class MotionStrip
     {
         public MotionClip clip;
+        /// <summary>The object whose stack the strip is in, null for scene-wide tracks: every object has lanes of its own.</summary>
+        public ObjectCtrlInfo owner;
         public float start;
         public float scale = 1f;
         public int repeat = 1;
@@ -68,6 +85,8 @@ namespace Timeline.Nla
         /// <summary>Lane index. Higher lanes are mixed in after lower ones.</summary>
         public int lane;
         public float influence = 1f;
+        /// <summary>Influence keyed over time, at times from the strip's start; empty means the plain influence.</summary>
+        public readonly SortedList<float, float> influenceKeys = new SortedList<float, float>();
         public float blendIn;
         public float blendOut;
         public StripBlendMode blendMode = StripBlendMode.Replace;
@@ -158,12 +177,49 @@ namespace Timeline.Nla
                 return 0f;
 
             float clamped = Mathf.Clamp(time, start, end);
-            float weight = Mathf.Clamp01(influence);
+            float weight = Mathf.Clamp01(InfluenceAt(clamped));
             if (blendIn > 0.001f && clamped < start + blendIn)
                 weight *= (clamped - start) / blendIn;
             if (blendOut > 0.001f && clamped > end - blendOut)
                 weight *= (end - clamped) / blendOut;
             return Mathf.Clamp01(weight);
+        }
+
+        /// <summary>The influence at a time: the keyed one where there are keys, straight between them.</summary>
+        public float InfluenceAt(float time)
+        {
+            int count = influenceKeys.Count;
+            if (count == 0)
+                return influence;
+            float local = time - start;
+            IList<float> times = influenceKeys.Keys;
+            IList<float> values = influenceKeys.Values;
+            if (local <= times[0])
+                return values[0];
+            if (local >= times[count - 1])
+                return values[count - 1];
+            for (int i = 1; i < count; ++i)
+            {
+                if (local <= times[i])
+                    return Mathf.Lerp(values[i - 1], values[i], (local - times[i - 1]) / Mathf.Max(times[i] - times[i - 1], 1e-5f));
+            }
+            return values[count - 1];
+        }
+
+        /// <summary>Where a clip time plays on the timeline in the strip's first pass: trimmed, scaled and reversed as it plays.</summary>
+        public float ClipToTimeline(float local)
+        {
+            float from = effectiveClipStart;
+            float offset = reverse ? from + clipSpan - local : local - from;
+            return start + offset * Mathf.Max(scale, 0.01f);
+        }
+
+        /// <summary>The clip time a timeline time plays in the strip's first pass, the inverse of ClipToTimeline.</summary>
+        public float TimelineToClip(float time)
+        {
+            float from = effectiveClipStart;
+            float offset = (time - start) / Mathf.Max(scale, 0.01f);
+            return reverse ? from + clipSpan - offset : from + offset;
         }
 
         /// <summary>Maps a timeline time to a clip local one, or reports that the strip is silent there.</summary>
