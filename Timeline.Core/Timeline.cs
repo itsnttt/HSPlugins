@@ -46,6 +46,8 @@ namespace Timeline
     [BepInPlugin(GUID, Name, Version)]
     // ShalltyUtils is part of Timeline now, and the old one only patched the Timeline window that is gone.
     [BepInIncompatibility("com.shallty.shalltyutils")]
+    // So is The Bird of Hermes; both would play the same scene's audio and save it under the same id.
+    [BepInIncompatibility(TheBirdOfHermes.HermesDAW.GUID)]
 #if KOIKATSU || SUNSHINE
     [BepInProcess("CharaStudio")]
     [BepInDependency(Sideloader.Sideloader.GUID, Sideloader.Sideloader.Version)]
@@ -242,6 +244,7 @@ namespace Timeline
 
             _self = this;
             Logger = MakeRelayLog(base.Logger);
+            InitAudio();
 
             _assemblyLocation = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             _singleFilesFolder = Path.Combine(_assemblyLocation, Path.Combine(Name, "Single Files"));

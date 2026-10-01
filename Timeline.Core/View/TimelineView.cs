@@ -341,6 +341,7 @@ namespace Timeline
                     s = s * 31 + T._graphHiddenTracks.Count * 3 + T._graphLockedTracks.Count;
                     s = s * 31 + (T._isPlaying ? 1 : 0);
                     s = s * 31 + Pal.version;
+                    s = s * 31 + AudioSignature();
                     if (s != _stateSignature)
                     {
                         _stateSignature = s;
@@ -402,7 +403,7 @@ namespace Timeline
                 bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
                 bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
                 bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
-                if (NlaKeys(ctrl, shift))
+                if (NlaKeys(ctrl, shift) || AudioKeys(ctrl))
                     return;
                 if (ctrl && Input.GetKeyDown(KeyCode.Z))
                 {

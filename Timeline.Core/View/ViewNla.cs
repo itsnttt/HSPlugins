@@ -72,6 +72,7 @@ namespace Timeline
                     for (int lane = T.TopLane(oci) + 1; lane >= 0; --lane)
                         rows.Add(new Row { type = RowType.Lane, key = "lane" + key.GetHashCode() + "_" + lane, lane = lane, depth = 1, h = LANE, oci = oci });
                 }
+                AddAudioRows(rows);
                 float y = 0f;
                 foreach (Row r in rows)
                 {
@@ -202,6 +203,7 @@ namespace Timeline
                         p.globalAlpha = 1f;
                     }
                 }
+                DrawAudio(p, w, GH);
                 float endY = RUL + _rowsTotal - scrollY + 22f;
                 if (endY < GH - 10f)
                     p.Label("Each object's lanes play from the lowest up and its keys on top of them all. Only the first strip in a lane holds backwards.", w / 2f, endY, 11, Pal.C(0x55585E), TextAnchor.MiddleCenter);

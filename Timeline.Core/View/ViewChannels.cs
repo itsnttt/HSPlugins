@@ -26,7 +26,11 @@ namespace Timeline
             /// <summary>The NLA's row of keys that are not in any strip.</summary>
             Action,
             /// <summary>An NLA lane.</summary>
-            Lane
+            Lane,
+            /// <summary>The Audio row, over the lanes of The Bird of Hermes, merged in.</summary>
+            AudioHead,
+            /// <summary>One of its audio lanes.</summary>
+            AudioLane
         }
 
         /// <summary>One line of the channel list and the grid beside it, as buildRows() makes them.</summary>
@@ -44,6 +48,8 @@ namespace Timeline
             public int lane;
             /// <summary>The object whose NLA stack a lane or keys row belongs to.</summary>
             public ObjectCtrlInfo oci;
+            /// <summary>The audio lane an AudioLane row shows.</summary>
+            public TheBirdOfHermes.AudioLane audio;
         }
 
         internal sealed partial class View
@@ -316,6 +322,7 @@ namespace Timeline
                         if (all.Count == 0)
                             rows.Remove(summary);
                     }
+                    AddAudioRows(rows);
                     return Place(rows);
                 }
 
@@ -349,6 +356,7 @@ namespace Timeline
                 }
                 if (summary != null && summary.tracks.Count == 0)
                     rows.Remove(summary);
+                AddAudioRows(rows);
                 return Place(rows);
             }
 
@@ -513,7 +521,7 @@ namespace Timeline
                     return _axOpen.Contains(r.tr) == false;
                 if (r.type == RowType.Group)
                     return r.group.obj.expanded == false;
-                return r.type == RowType.Object && collapsed.Contains(r.key);
+                return (r.type == RowType.Object || r.type == RowType.AudioHead) && collapsed.Contains(r.key);
             }
 
             private Interpolable ActiveTrack()
@@ -654,9 +662,9 @@ namespace Timeline
                 Color bg = new Color(0f, 0f, 0f, 0f);
                 if (r.type == RowType.Summary)
                     bg = Pal.C(0x2A2D32);
-                else if (r.type == RowType.Object)
+                else if (r.type == RowType.Object || r.type == RowType.AudioHead)
                     bg = Pal.C(0x33353B);
-                else if (r.type == RowType.Action || r.type == RowType.Lane)
+                else if (r.type == RowType.Action || r.type == RowType.Lane || r.type == RowType.AudioLane)
                     bg = Pal.C(0x2A2D32);
                 else if (r.type == RowType.Axis && r.tr == active)
                     bg = Pal.Accent(0.08f);
@@ -667,14 +675,14 @@ namespace Timeline
                 else if (isSelected)
                     bg = Pal.Accent(0.08f);
                 v.click.normal = bg;
-                v.click.hover = r.type == RowType.Summary || r.type == RowType.Object ? bg : Pal.C(0x33363C);
+                v.click.hover = r.type == RowType.Summary || r.type == RowType.Object || r.type == RowType.AudioHead ? bg : Pal.C(0x33363C);
                 v.click.pressed = v.click.hover;
                 v.click.Refresh();
                 v.bar.gameObject.SetActive(isActive);
 
                 float x = pad;
                 bool axisTwisty = track && editor == "graph" && Dim(r.tr) > 1;
-                bool twisty = r.type == RowType.Object || r.type == RowType.Group || axisTwisty;
+                bool twisty = r.type == RowType.Object || r.type == RowType.Group || r.type == RowType.AudioHead || axisTwisty;
                 v.twistyHit.gameObject.SetActive(twisty);
                 v.twistyHit.Css(x, 0f, float.NaN, 0f, 14f);
                 if (twisty)
@@ -714,8 +722,10 @@ namespace Timeline
                 bool icons = (r.type == RowType.Track || r.type == RowType.Object || r.type == RowType.Group || r.type == RowType.Axis) && editor != "nla";
                 // A lane with strips mutes, solos and locks, as Blender's NLA tracks do.
                 bool laneIcons = r.type == RowType.Lane && r.lane <= T.TopLane(r.oci);
-                float right = 6f + (icons ? 36f : 0f) + (laneIcons ? 54f : 0f);
-                bool showCount = twisty && axisTwisty == false && IsCollapsed(r);
+                // An audio lane with clips has the eye only, to mute it.
+                bool audioIcon = r.type == RowType.AudioLane && r.audio.Tracks.Count != 0;
+                float right = 6f + (icons ? 36f : 0f) + (laneIcons ? 54f : 0f) + (audioIcon ? 18f : 0f);
+                bool showCount = twisty && axisTwisty == false && IsCollapsed(r) && r.type != RowType.AudioHead;
                 v.count.gameObject.SetActive(showCount);
                 if (showCount)
                 {
@@ -764,6 +774,13 @@ namespace Timeline
                             label = Kit.Escape(lane != null ? lane.DisplayName : "Track " + (r.lane + 1)) + (stack.Plays(r.lane) ? "" : " " + Kit.Dim("· off"));
                         break;
                     }
+                    case RowType.AudioHead:
+                        label = "Audio";
+                        bold = true;
+                        break;
+                    case RowType.AudioLane:
+                        label = AudioRowLabel(r);
+                        break;
                     default:
                         label = Kit.Escape(TrackName(r.tr));
                         string prop = PropOf(r.tr);
@@ -817,6 +834,13 @@ namespace Timeline
                     v.eye.transform.parent.GetComponent<Clickable>().tooltip = "Show in Graph";
                     v.lockIcon.transform.parent.GetComponent<Clickable>().tooltip = "Lock against edits";
                 }
+                if (audioIcon)
+                {
+                    v.eye.transform.parent.gameObject.SetActive(true);
+                    ((RectTransform)v.eye.transform.parent).Css(float.NaN, (h - 18f) / 2f, 6f, float.NaN, 18f, 18f);
+                    v.eye.Set(r.audio.IsMuted ? "eyeoff" : "eye", r.audio.IsMuted ? Pal.C(0x6B6E74) : Pal.C(0xC9CDD3));
+                    v.eye.transform.parent.GetComponent<Clickable>().tooltip = "Mute the lane";
+                }
             }
 
             /// <summary>The track colour: the one picked for it, or a quiet grey for the default white.</summary>
@@ -843,6 +867,14 @@ namespace Timeline
                 if (r == null)
                     return;
                 bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+                if (r.type == RowType.AudioHead || r.type == RowType.AudioLane)
+                {
+                    if (e.button == PointerEventData.InputButton.Right)
+                        OpenMenuAtPointer(e, AudioRowItems(r, FrameSnap(T._playbackTime)));
+                    else if (e.button == PointerEventData.InputButton.Left)
+                        AudioRowDown(r, ctrl);
+                    return;
+                }
                 if (e.button == PointerEventData.InputButton.Right)
                 {
                     if (r.type == RowType.Track && T._selectedInterpolables.Contains(r.tr) == false)
@@ -993,7 +1025,7 @@ namespace Timeline
                 }
                 else if (r.type == RowType.Group)
                     r.group.obj.expanded = !r.group.obj.expanded;
-                else if (r.type == RowType.Object)
+                else if (r.type == RowType.Object || r.type == RowType.AudioHead)
                 {
                     if (collapsed.Contains(r.key))
                         collapsed.Remove(r.key);
@@ -1006,6 +1038,11 @@ namespace Timeline
 
             private void ToggleEye(Row r)
             {
+                if (r != null && r.type == RowType.AudioLane)
+                {
+                    ToggleAudioMute(r);
+                    return;
+                }
                 if (r != null && r.type == RowType.Lane)
                 {
                     EditLane(r, l => l.mute = !l.mute);

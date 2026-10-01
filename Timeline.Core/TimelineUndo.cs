@@ -88,6 +88,9 @@ namespace Timeline
             public List<KeySet> keySets;
             public string[] keySetNames;
             public Color[] keySetColors;
+            /// <summary>The audio clips and lanes then, and the scene's length, which fitting it to the audio changes.</summary>
+            public AudioState audio;
+            public float duration;
             public string label;
         }
 
@@ -115,6 +118,7 @@ namespace Timeline
             if (_undoStack.Count > _maxUndoSteps)
                 _undoStack.RemoveAt(0);
             _redoStack.Clear();
+            PruneRetiredAudio();
         }
 
         private void Undo()
@@ -143,6 +147,7 @@ namespace Timeline
         {
             _undoStack.Clear();
             _redoStack.Clear();
+            PruneRetiredAudio();
         }
 
         private HistoryState Capture(string label)
@@ -200,7 +205,9 @@ namespace Timeline
                         p.Value.Select(k => new KeyValuePair<float, Keyframe>(k.Key, new Keyframe(k.Value))).ToArray())).ToList(),
                 keySets = new List<KeySet>(_keySets),
                 keySetNames = _keySets.ConvertAll(s => s.name).ToArray(),
-                keySetColors = _keySets.ConvertAll(s => s.color).ToArray()
+                keySetColors = _keySets.ConvertAll(s => s.color).ToArray(),
+                audio = CaptureAudio(),
+                duration = _duration
             };
         }
 
@@ -385,6 +392,10 @@ namespace Timeline
                     foreach (TimelineMarker marker in state.markers)
                         _markers.Add(new TimelineMarker { time = marker.time, name = marker.name });
                 }
+
+                RestoreAudio(state.audio);
+                if (state.duration > 0f)
+                    _duration = state.duration;
 
                 UpdateInterpolablesView();
                 UpdateGrid();

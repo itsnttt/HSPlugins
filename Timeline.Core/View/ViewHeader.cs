@@ -484,6 +484,13 @@ namespace Timeline
                     disabled = Compat.NodesConstraintsLink.Available == false,
                     act = () => T.ShowConstraintTools()
                 });
+                TheBirdOfHermes.HermesDAW audio = TheBirdOfHermes.HermesDAW.Instance;
+                if (audio != null)
+                {
+                    items.Add(new MenuItem { label = "Add audio file…", act = () => AddAudioFiles(T._playbackTime, null) });
+                    items.Add(new MenuItem { label = "Audio…", check = audio.WindowOpen, act = () => audio.WindowOpen = audio.WindowOpen == false });
+                    items.Add(new MenuItem { label = "Scene length to fit the audio", disabled = audio.TrackManager.HasAudio == false, act = audio.FitSceneLength });
+                }
                 items.Add(new MenuItem { label = "Shortcuts and help", act = OpenKeys });
                 return items;
             }

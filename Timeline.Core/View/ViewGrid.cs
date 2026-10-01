@@ -134,6 +134,7 @@ namespace Timeline
                         }
                     }
                 }
+                DrawAudio(p, w, GH);
                 if (_rows.Count == 0)
                 {
                     string message = search.Trim().Length != 0 ? "Nothing matches the search"
@@ -623,6 +624,8 @@ namespace Timeline
                     return;
                 }
 
+                if (editor != "graph" && AudioDown(e, p))
+                    return;
                 if (editor == "graph")
                 {
                     GraphDown(e, p);
@@ -656,7 +659,7 @@ namespace Timeline
 
             public void GridDrag(PointerEventData e)
             {
-                if (GraphDragMove(e, GridPos(e)) || NlaDrag(e, GridPos(e)))
+                if (GraphDragMove(e, GridPos(e)) || NlaDrag(e, GridPos(e)) || AudioDrag(e, GridPos(e)))
                     return;
                 if (_drag == null)
                     return;
@@ -713,7 +716,7 @@ namespace Timeline
 
             public void GridUp(PointerEventData e)
             {
-                if (GraphUp(e, GridPos(e)) || NlaUp(e, GridPos(e)))
+                if (GraphUp(e, GridPos(e)) || NlaUp(e, GridPos(e)) || AudioUp(e, GridPos(e)))
                     return;
                 if (_drag == null)
                     return;
@@ -852,6 +855,8 @@ namespace Timeline
                     OpenMenuAtPointer(e, items);
                     return;
                 }
+                if (editor != "graph" && AudioMenu(e, p))
+                    return;
                 if (editor == "nla")
                 {
                     NlaMenu(e, p);
