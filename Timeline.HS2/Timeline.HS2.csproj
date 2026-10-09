@@ -6,7 +6,7 @@
 	</PropertyGroup>
 	<ItemGroup>
 		<PackageReference Include="Sideloader.HoneySelect2" Version="21.0.0" />
-		<PackageReference Include="IllusionModdingAPI.HS2API" Version="1.43.0" />
+		<PackageReference Include="IllusionModdingAPI.HS2API" Version="1.45.1" />
 	</ItemGroup>
 	<Import Project="..\Timeline.Core\Timeline.Core.projitems" Label="Shared" />
 	<Import Project="..\ToolBox\ToolBox.projitems" Label="Shared" />
