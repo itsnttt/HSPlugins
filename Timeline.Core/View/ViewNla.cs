@@ -21,14 +21,22 @@ namespace Timeline
 
             private readonly List<StripHit> _stripHits = new List<StripHit>();
 
+            private struct StripPlacement
+            {
+                public MotionStrip strip;
+                public float start;
+                public int lane;
+            }
+
             private sealed class StripDrag
             {
                 public MotionStrip strip;
                 public string zone;
                 public float x0, y0;
-                public float start, end, scale;
-                public int lane;
-                public bool moved;
+                public float start, end;
+                public bool moved, selectOnlyOnClick;
+                public StripPlacement[] group;
+                public int maxLaneDelta;
             }
 
             private StripDrag _sdrag;
@@ -231,13 +239,17 @@ namespace Timeline
             {
                 if (e.button != PointerEventData.InputButton.Left)
                     return;
-                bool add = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl) || Input.GetKey(KeyCode.LeftShift);
+                bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+                bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
                 string zone;
                 StripHit? hit = StripAt(p, out zone);
                 if (hit.HasValue)
                 {
                     MotionStrip s = hit.Value.strip;
-                    T.SelectStrip(s, add);
+                    bool wasSelected = T._selectedStrips.Contains(s);
+                    T.SelectStrip(s, ctrl || shift || wasSelected, ctrl);
+                    if (T._selectedStrips.Contains(s) == false)
+                        return;
                     tab = "Strip";
                     if (T.LaneLocked(s))
                     {
@@ -245,14 +257,31 @@ namespace Timeline
                         Touch();
                         return;
                     }
-                    _sdrag = new StripDrag { strip = s, zone = zone, x0 = p.x, y0 = p.y, start = s.start, end = s.end, scale = s.scale, lane = s.lane };
+                    _sdrag = new StripDrag
+                    {
+                        strip = s, zone = zone, x0 = p.x, y0 = p.y, start = s.start, end = s.end,
+                        selectOnlyOnClick = wasSelected && ctrl == false && shift == false && T._selectedStrips.Count > 1
+                    };
+                    if (zone == "body")
+                    {
+                        if (T._selectedStrips.Any(T.LaneLocked))
+                        {
+                            Toast("Unlock the selected lanes before moving these strips.");
+                            return;
+                        }
+                        _sdrag.group = T._selectedStrips.Select(strip => new StripPlacement
+                        {
+                            strip = strip, start = strip.start, lane = strip.lane
+                        }).ToArray();
+                        _sdrag.maxLaneDelta = _sdrag.group.Min(item => T.TopLane(item.strip.owner) + 1 - item.lane);
+                    }
                     Touch();
                     return;
                 }
-                if (add == false)
+                if (ctrl == false && shift == false && T._selectedStrips.Count != 0)
                 {
                     T._selectedStrips.Clear();
-                    Touch();
+                    T.UpdateStripSelection();
                 }
             }
 
@@ -261,6 +290,8 @@ namespace Timeline
                 if (_sdrag == null)
                     return false;
                 StripDrag d = _sdrag;
+                if (d.zone == "body" && d.group == null)
+                    return true;
                 if (d.moved == false)
                 {
                     if (Mathf.Abs(p.x - d.x0) + Mathf.Abs(p.y - d.y0) < 3f)
@@ -273,10 +304,18 @@ namespace Timeline
                 float single = Mathf.Max(s.clipSpan * Mathf.Max(s.repeat, 1), 0.001f);
                 if (d.zone == "body")
                 {
-                    s.start = Mathf.Max(0f, SnapT(d.start + Tt(p.x) - Tt(d.x0), shift));
-                    // Higher lanes are higher in the list, so dragging down goes to a lower one.
-                    int top = T._strips.Where(x => x != s && x.owner == s.owner).Select(x => x.lane).DefaultIfEmpty(-1).Max();
-                    s.lane = Mathf.Clamp(d.lane - Mathf.RoundToInt((p.y - d.y0) / LANE), 0, top + 1);
+                    float dt = SnapT(d.start + Tt(p.x) - Tt(d.x0), shift) - d.start;
+                    dt = Mathf.Max(dt, -d.group.Min(item => item.start));
+                    // Higher lanes are higher in the list.
+                    int laneDelta = -Mathf.RoundToInt((p.y - d.y0) / LANE);
+                    laneDelta = Mathf.Clamp(laneDelta, -d.group.Min(item => item.lane), d.maxLaneDelta);
+                    if (d.group.Any(item => T.LaneLocked(item.strip.owner, item.lane + laneDelta)))
+                        laneDelta = 0;
+                    foreach (StripPlacement item in d.group)
+                    {
+                        item.strip.start = item.start + dt;
+                        item.strip.lane = item.lane + laneDelta;
+                    }
                 }
                 else if (d.zone == "right")
                 {
@@ -303,10 +342,26 @@ namespace Timeline
                 _sdrag = null;
                 if (d.moved)
                 {
-                    T.SettleStrip(d.strip, d.start);
+                    if (d.group != null && d.group.Length > 1)
+                    {
+                        if (d.group.Any(item => T.OverlapsInLane(item.strip, item.strip.lane)))
+                        {
+                            foreach (StripPlacement item in d.group)
+                            {
+                                item.strip.start = item.start;
+                                item.strip.lane = item.lane;
+                            }
+                            Toast("The selected strips overlap another strip in that lane.");
+                        }
+                    }
+                    else
+                        T.SettleStrip(d.strip, d.start);
+                    _rowsDirty = true;
                     T.UpdateStrips();
                     T.RefreshInterpolation();
                 }
+                else if (d.selectOnlyOnClick)
+                    T.SelectStrip(d.strip, false);
                 Touch();
                 return true;
             }
@@ -361,11 +416,11 @@ namespace Timeline
                 }
                 return new List<MenuItem>
                 {
-                    new MenuItem { label = "Duplicate", kb = "Shift+D", disabled = none, act = () => T.DuplicateStrip(s, false) },
-                    new MenuItem { label = "Duplicate linked", disabled = none, act = () => T.DuplicateStrip(s, true) },
+                    new MenuItem { label = "Duplicate", kb = "Shift+D", disabled = none, act = () => T.DuplicateSelectedStrips(false) },
+                    new MenuItem { label = "Duplicate linked", disabled = none, act = () => T.DuplicateSelectedStrips(true) },
                     new MenuItem { label = "Split at playhead", kb = "Y", disabled = none, act = () => T.SplitStrip(s, FrameSnap(T._playbackTime)) },
-                    new MenuItem { label = "Mute or unmute", kb = "H", disabled = none, act = () => EditStrip(() => s.enabled = !s.enabled) },
-                    new MenuItem { label = "Delete", kb = "X", disabled = none, act = () => T.RemoveStrip(s) },
+                    new MenuItem { label = "Mute or unmute", kb = "H", disabled = none, act = () => ToggleSelectedStrips() },
+                    new MenuItem { label = "Delete", kb = "X", disabled = none, act = () => T.RemoveSelectedStrips() },
                     new MenuItem { label = T._tweakStrip == s && s != null ? "Finish editing clip keys" : "Edit clip keys", disabled = none, act = () => { if (T._tweakStrip == s) T.ExitTweakMode(); else T.EnterTweakMode(s); } },
                     new MenuItem { label = "Merge the " + T._selectedStrips.Count + " selected strips", disabled = T._selectedStrips.Count < 2, act = () => T.MergeStrips(new List<MotionStrip>(T._selectedStrips)) },
                     new MenuItem { sep = true },
@@ -440,6 +495,16 @@ namespace Timeline
                 };
             }
 
+            private void ToggleSelectedStrips()
+            {
+                bool enable = T._selectedStrips.All(strip => strip.enabled == false);
+                EditStrip(() =>
+                {
+                    foreach (MotionStrip strip in T._selectedStrips)
+                        strip.enabled = enable;
+                });
+            }
+
             /// <summary>The NLA's own keys: Shift+D, Y, H and X act on strips there.</summary>
             private bool NlaKeys(bool ctrl, bool shift)
             {
@@ -447,13 +512,13 @@ namespace Timeline
                     return false;
                 MotionStrip s = T._selectedStrips[T._selectedStrips.Count - 1];
                 if (shift && Input.GetKeyDown(KeyCode.D))
-                    T.DuplicateStrip(s, false);
+                    T.DuplicateSelectedStrips(false);
                 else if (Input.GetKeyDown(KeyCode.Y))
                     T.SplitStrip(s, FrameSnap(T._playbackTime));
                 else if (Input.GetKeyDown(KeyCode.H))
-                    EditStrip(() => s.enabled = !s.enabled);
+                    ToggleSelectedStrips();
                 else if (Input.GetKeyDown(KeyCode.X) || Input.GetKeyDown(KeyCode.Delete))
-                    T.RemoveStrip(s);
+                    T.RemoveSelectedStrips();
                 else
                     return false;
                 Touch();

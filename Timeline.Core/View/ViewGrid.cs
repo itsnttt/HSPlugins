@@ -496,8 +496,9 @@ namespace Timeline
             {
                 if (_drag == null || _drag.kind != DragKind.Box || _drag.moved == false)
                     return;
-                float x = Mathf.Min(_drag.x0, _drag.x1), y = Mathf.Min(_drag.y0, _drag.y1);
-                float w = Mathf.Abs(_drag.x1 - _drag.x0), h = Mathf.Abs(_drag.y1 - _drag.y0);
+                float x0 = BoxTimeX(_drag, _drag.x0), x1 = BoxTimeX(_drag, _drag.x1);
+                float x = Mathf.Min(x0, x1), y = Mathf.Min(_drag.y0, _drag.y1);
+                float w = Mathf.Abs(x1 - x0), h = Mathf.Abs(_drag.y1 - _drag.y0);
                 p.Rect(x, y, w, h, Pal.Accent(0.12f));
                 p.StrokeRect(x, y, w, h, 1f, Pal.accent);
             }
@@ -521,11 +522,17 @@ namespace Timeline
                 public float x0, y0, x1, y1;
                 public bool moved;
                 public bool additive;
+                public bool snapBox;
                 public float startT;
                 public TimelineMarker marker;
                 public float scroll0, t00;
                 public Dictionary<Keyframe, float> origin;
                 public float applied;
+            }
+
+            private float BoxTimeX(Drag drag, float x)
+            {
+                return drag.snapBox ? X(FrameSnap(Tt(x))) : x;
             }
 
             private Drag _drag;
@@ -616,13 +623,20 @@ namespace Timeline
                             T.DeleteKeyframes(hit.Value.keys);
                         return;
                     }
-                    Row r = RowAt(p.y);
-                    if (r != null && r.tracks.Count + (r.tr != null ? 1 : 0) != 0)
+                    bool alt = Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+                    Row row = RowAt(p.y);
+                    float time = Mathf.Clamp(SnapT(Tt(p.x), shift), 0f, T._duration);
+                    if (alt && T._selectedInterpolables.Count != 0)
                     {
-                        float t = SnapT(Tt(p.x), shift);
-                        List<Interpolable> targets = r.type == RowType.Track ? new List<Interpolable> { r.tr } : r.tracks;
-                        foreach (Interpolable track in targets)
-                            T.AddKeyframe(track, Mathf.Clamp(t, 0f, T._duration));
+                        foreach (Interpolable track in T._selectedInterpolables.ToArray())
+                            T.AddKeyframe(track, time);
+                    }
+                    else if (row != null && row.type == RowType.Track)
+                        T.AddKeyframe(row.tr, time);
+                    else if (row != null)
+                    {
+                        foreach (Interpolable track in row.tracks)
+                            T.AddKeyframe(track, time);
                     }
                     return;
                 }
@@ -641,9 +655,9 @@ namespace Timeline
                 }
                 if (p.y < RUL && ctrl)
                 {
-                    // Control + drag marks the range to trim; control + click clears it.
-                    T.BeginTrimRangeSelect(SnapT(Tt(p.x), shift));
-                    _drag = new Drag { kind = DragKind.Trim };
+                    // Control + drag marks a frame-aligned trim range. A click seeks to one frame.
+                    T.BeginTrimRangeSelect(FrameSnap(Tt(p.x)));
+                    _drag = new Drag { kind = DragKind.Trim, x0 = p.x };
                     Touch();
                     return;
                 }
@@ -702,13 +716,15 @@ namespace Timeline
                     return;
                 Vector2 p = GridPos(e);
                 bool shift = Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+                bool ctrl = Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
                 switch (_drag.kind)
                 {
                     case DragKind.Scrub:
-                        SetTime(SnapT(Tt(p.x), shift == false));
+                        SetTime(ctrl ? FrameSnap(Tt(p.x)) : SnapT(Tt(p.x), shift == false));
                         break;
                     case DragKind.Trim:
-                        T.UpdateTrimRangeSelect(SnapT(Tt(p.x), shift));
+                        _drag.moved |= Mathf.Abs(p.x - _drag.x0) > 3f;
+                        T.UpdateTrimRangeSelect(FrameSnap(Tt(p.x)));
                         Touch();
                         break;
                     case DragKind.Marker:
@@ -733,6 +749,7 @@ namespace Timeline
                         break;
                     case DragKind.Box:
                         _drag.x1 = p.x;
+                        _drag.snapBox = ctrl;
                         _drag.y1 = p.y;
                         if (Mathf.Abs(p.x - _drag.x0) > 3f || Mathf.Abs(p.y - _drag.y0) > 3f)
                             _drag.moved = true;
@@ -762,6 +779,8 @@ namespace Timeline
                 if (d.kind == DragKind.Trim)
                 {
                     T.FinishTrimRangeSelect();
+                    if (d.moved == false && T._hasTrimRange == false)
+                        SetTime(FrameSnap(Tt(GridPos(e).x)));
                     Touch();
                     return;
                 }
@@ -774,7 +793,9 @@ namespace Timeline
                             T.SelectKeyframes();
                         return;
                     }
-                    float x0 = Mathf.Min(d.x0, d.x1), x1 = Mathf.Max(d.x0, d.x1), y0 = Mathf.Min(d.y0, d.y1), y1 = Mathf.Max(d.y0, d.y1);
+                    float a = BoxTimeX(d, d.x0), b = BoxTimeX(d, d.x1);
+                    float x0 = Mathf.Min(a, b), x1 = Mathf.Max(a, b);
+                    float y0 = Mathf.Min(d.y0, d.y1), y1 = Mathf.Max(d.y0, d.y1);
                     var found = new List<KeyValuePair<float, Keyframe>>();
                     var seen = new HashSet<Keyframe>();
                     if (editor == "graph")

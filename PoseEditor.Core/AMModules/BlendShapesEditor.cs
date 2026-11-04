@@ -2269,8 +2269,13 @@ namespace HSPE.AMModules
                             {
                                 float weight = Mathf.LerpUnclamped((float)leftValue, (float)rightValue, factor);
                                 var name = p.blendRenderer.GetBlendShapeName(p.index);
-                                foreach (var blendRenderer in p.editor._blendRenderers)
-                                    p.blendRenderer.SetBlendShapeWeight(name, weight);
+                                if (name == null)
+                                    return;
+                                foreach (BlendRenderer renderer in p.editor._blendRenderers.Values)
+                                {
+                                    if (renderer._renderer != null)
+                                        renderer.SetBlendShapeWeight(name, weight);
+                                }
                             }
                         },
                         interpolateAfter: null,

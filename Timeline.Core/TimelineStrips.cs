@@ -91,10 +91,15 @@ namespace Timeline
 
         internal bool LaneLocked(MotionStrip strip)
         {
-            NlaStack stack = FindStack(strip.owner);
+            return LaneLocked(strip.owner, strip.lane);
+        }
+
+        private bool LaneLocked(ObjectCtrlInfo owner, int index)
+        {
+            NlaStack stack = FindStack(owner);
             if (stack == null)
                 return false;
-            NlaLane lane = stack.lanes.Find(l => l.index == strip.lane);
+            NlaLane lane = stack.lanes.Find(l => l.index == index);
             return lane != null && lane.locked;
         }
 
@@ -178,9 +183,9 @@ namespace Timeline
                     Contribution existing;
                     bool first = _blended.TryGetValue(channel.target, out existing) == false;
 
-                    // A lone strip at full influence hands the delegate the untouched keyframe pair, which
-                    // is what keeps discrete interpolables working: there is no halfway pose to compute.
-                    if (first && weight >= 0.999f && strip.blendMode == StripBlendMode.Replace)
+                    // A full Replace takes priority over lower lanes and earlier held strips.
+                    // Preserve the keyframe pair so custom interpolables can evaluate it.
+                    if (weight >= 0.999f && strip.blendMode == StripBlendMode.Replace)
                     {
                         _blended[channel.target] = new Contribution { sample = sample, weight = weight, plain = true };
                         continue;
@@ -604,9 +609,23 @@ namespace Timeline
         /// own (Blender's Duplicate), or sharing this one's, so editing either edits both (its Linked
         /// Duplicate).
         /// </summary>
-        private void DuplicateStrip(MotionStrip strip, bool linked)
+        private void DuplicateSelectedStrips(bool linked)
         {
-            RecordUndo(linked ? "Duplicate strip, linked" : "Duplicate strip");
+            MotionStrip[] sources = _selectedStrips.ToArray();
+            if (sources.Length == 0)
+                return;
+            RecordUndo(linked ? "Duplicate strips, linked" : "Duplicate strips");
+            float offset = sources.Max(s => s.end) - sources.Min(s => s.start);
+            _selectedStrips.Clear();
+            foreach (MotionStrip source in sources)
+                _selectedStrips.Add(DuplicateStrip(source, linked, offset));
+            UpdateStripSelection();
+            UpdateGrid();
+            RefreshInterpolation();
+        }
+
+        private MotionStrip DuplicateStrip(MotionStrip strip, bool linked, float offset)
+        {
             MotionClip clip = strip.clip;
             if (linked == false)
             {
@@ -614,7 +633,7 @@ namespace Timeline
                 _clips.Add(clip);
             }
             MotionStrip copy = CopyOf(strip, clip);
-            copy.start = strip.end;
+            copy.start += offset;
 
             // Straight after the original on its own lane if there is room, otherwise the first lane up
             // that has it. Dropping it onto a strip already there would leave two strips overlapping,
@@ -622,13 +641,12 @@ namespace Timeline
             for (int lane = strip.lane; lane <= TopLane(strip.owner) + 1; ++lane)
             {
                 copy.lane = lane;
-                if (OverlapsInLane(copy, lane) == false)
+                if (LaneLocked(copy) == false && OverlapsInLane(copy, lane) == false)
                     break;
             }
 
             _strips.Add(copy);
-            SelectStrip(copy, false);
-            UpdateGrid();
+            return copy;
         }
 
         /// <summary>Gives a strip a copy of its clip, so editing it no longer edits the others.</summary>
@@ -857,16 +875,20 @@ namespace Timeline
             UpdateGrid();
         }
 
-        private void RemoveStrip(MotionStrip strip)
+        private void RemoveSelectedStrips()
         {
-            if (_tweakStrip == strip)
-                ExitTweakMode();
-            RecordUndo("Delete strip");
-            _strips.Remove(strip);
-            _selectedStrips.Remove(strip);
             if (_selectedStrips.Count == 0)
-                CloseStripWindow();
+                return;
+            MotionStrip[] selected = _selectedStrips.ToArray();
+            if (selected.Contains(_tweakStrip))
+                ExitTweakMode();
+            RecordUndo("Delete strips");
+            foreach (MotionStrip strip in selected)
+                _strips.Remove(strip);
+            _selectedStrips.Clear();
+            UpdateStripSelection();
             UpdateGrid();
+            RefreshInterpolation();
         }
 
         /// <summary>Removes a lane of an object and its strips; the lanes above it move down one.</summary>
@@ -913,7 +935,7 @@ namespace Timeline
 
             for (int lane = 0; lane <= TopLane(strip.owner) + 1; ++lane)
             {
-                if (OverlapsInLane(strip, lane))
+                if (LaneLocked(strip.owner, lane) || OverlapsInLane(strip, lane))
                     continue;
                 strip.lane = lane;
                 Logger.LogMessage("Strip moved to lane " + (lane + 1) + ", the one you dropped it on was taken.");
@@ -941,26 +963,25 @@ namespace Timeline
         #region Inspector
         private readonly List<MotionStrip> _selectedStrips = new List<MotionStrip>();
 
-        private void SelectStrip(MotionStrip strip, bool additive)
+        private void SelectStrip(MotionStrip strip, bool additive, bool toggle = false)
         {
             if (additive == false)
                 _selectedStrips.Clear();
-            else
-                _selectedStrips.Remove(strip);
-            _selectedStrips.Add(strip);
+            bool wasSelected = _selectedStrips.Remove(strip);
+            if (toggle == false || wasSelected == false)
+                _selectedStrips.Add(strip);
+            UpdateStripSelection();
+        }
 
-            // A strip has no row of its own in the channel list, so the next best thing is to light up
-            // the tracks it drives: you can see at a glance what it covers, and the graph editor, which
-            // draws the selected tracks, turns into that strip's curves.
-            if (additive == false && strip.clip != null)
-            {
-                _selectedInterpolables.Clear();
-                foreach (ClipChannel channel in strip.clip.channels)
-                {
-                    if (channel.target != null)
-                        _selectedInterpolables.Add(channel.target);
-                }
-            }
+        private void UpdateStripSelection()
+        {
+            _selectedInterpolables.Clear();
+            _selectedInterpolables.AddRange(_selectedStrips
+                .Where(strip => strip.clip != null)
+                .SelectMany(strip => strip.clip.channels)
+                .Select(channel => channel.target)
+                .Where(target => target != null)
+                .Distinct());
             UpdateStrips();
         }
 
