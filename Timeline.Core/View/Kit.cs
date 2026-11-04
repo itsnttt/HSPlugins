@@ -85,9 +85,10 @@ namespace Timeline.View
                 min.x = max.x = 0f;
             if (t == false && b == false)
                 min.y = max.y = 1f;
-            rect.anchorMin = min;
-            rect.anchorMax = max;
-            rect.pivot = new Vector2(l || r == false ? 0f : 1f, t || b == false ? 1f : 0f);
+            if (rect.anchorMin != min) rect.anchorMin = min;
+            if (rect.anchorMax != max) rect.anchorMax = max;
+            Vector2 pivot = new Vector2(l || r == false ? 0f : 1f, t || b == false ? 1f : 0f);
+            if (rect.pivot != pivot) rect.pivot = pivot;
             float x0, x1, y0, y1;
             if (l && r) { x0 = left; x1 = -right; }
             else if (l) { x0 = left; x1 = left + width; }
@@ -97,8 +98,11 @@ namespace Timeline.View
             else if (t) { y0 = -top - height; y1 = -top; }
             else if (b) { y0 = bottom; y1 = bottom + height; }
             else { y0 = -height; y1 = 0f; }
-            rect.offsetMin = new Vector2(x0, y0);
-            rect.offsetMax = new Vector2(x1, y1);
+            // PlaceRows calls this every frame. Writing both offsets unconditionally can resize
+            // the rect temporarily even when its final layout has not changed.
+            Vector2 offsetMin = new Vector2(x0, y0), offsetMax = new Vector2(x1, y1);
+            if (rect.offsetMin != offsetMin) rect.offsetMin = offsetMin;
+            if (rect.offsetMax != offsetMax) rect.offsetMax = offsetMax;
             return rect;
         }
         #endregion

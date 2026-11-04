@@ -107,7 +107,9 @@ namespace Timeline
                     scaler.enabled = false;
                 canvas.scaleFactor = EffectiveUIScale();
                 canvas.referencePixelsPerUnit = 100f;
-                canvas.pixelPerfect = true;
+                // Paint already aligns its shapes. Pixel-perfect uGUI also rebuilds every child
+                // graphic when the window moves, including all pooled grid labels.
+                canvas.pixelPerfect = false;
                 _group = canvas.gameObject.AddComponent<CanvasGroup>();
                 _canvasRect = (RectTransform)canvas.transform;
 
@@ -284,9 +286,9 @@ namespace Timeline
                     RenderProps();
                     _keyTimesDirty = false;
                 }
-                // Keys being dragged change their times every frame; the properties follow a few times a
-                // second instead, as rebuilding them each frame is what dragged the frame rate down.
-                else if (_keyTimesDirty && Time.unscaledTime - _keyTimesAt > 0.2f)
+                // Rebuilding the property controls during a drag causes layout/GC spikes. GridUp
+                // and GraphUp refresh them on release; keep throttling edits from other sources.
+                else if (_keyTimesDirty && _drag == null && _gdrag == null && Time.unscaledTime - _keyTimesAt > 0.2f)
                 {
                     _keyTimesDirty = false;
                     _keyTimesAt = Time.unscaledTime;

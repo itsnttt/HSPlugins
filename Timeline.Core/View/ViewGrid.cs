@@ -28,6 +28,31 @@ namespace Timeline
 
             private readonly List<Hit> _hits = new List<Hit>();
             private readonly HashSet<Keyframe> _selectedSet = new HashSet<Keyframe>();
+            private readonly List<List<KeyValuePair<float, Keyframe>>> _hitKeys = new List<List<KeyValuePair<float, Keyframe>>>();
+            private int _hitKeysUsed;
+
+            private List<KeyValuePair<float, Keyframe>> HitKeys(float time, Keyframe key)
+            {
+                if (_hitKeysUsed == _hitKeys.Count)
+                    _hitKeys.Add(new List<KeyValuePair<float, Keyframe>>(1));
+                var keys = _hitKeys[_hitKeysUsed++];
+                keys.Clear();
+                keys.Add(new KeyValuePair<float, Keyframe>(time, key));
+                return keys;
+            }
+
+            /// <summary>First key at or after time, including Count when all keys precede it.</summary>
+            private static int LowerBound(IList<float> times, float time)
+            {
+                int lo = 0, hi = times.Count;
+                while (lo < hi)
+                {
+                    int mid = lo + (hi - lo) / 2;
+                    if (times[mid] < time) lo = mid + 1;
+                    else hi = mid;
+                }
+                return lo;
+            }
 
             private void BuildGrid()
             {
@@ -51,6 +76,8 @@ namespace Timeline
                 foreach (KeyValuePair<float, Keyframe> k in T._selectedKeyframes)
                     _selectedSet.Add(k.Value);
                 _hits.Clear();
+                int previousHitKeysUsed = _hitKeysUsed;
+                _hitKeysUsed = 0;
 
                 Paint p = _gp;
                 p.Begin();
@@ -65,6 +92,9 @@ namespace Timeline
                 DrawPlayhead(p, GH);
                 DrawScrollbars(p, w, GH);
                 p.End();
+                // Release references to tracks that disappeared or scrolled out of view.
+                for (int i = _hitKeysUsed; i < previousHitKeysUsed; ++i)
+                    _hitKeys[i].Clear();
             }
 
             private void DrawDope(Paint p, float w, float GH)
@@ -100,7 +130,8 @@ namespace Timeline
                         IList<float> times = tr.keyframes.Keys;
                         IList<Keyframe> keys = tr.keyframes.Values;
                         // A bar between two keys that hold the same value, or after a moving hold.
-                        for (int i = 0; i < keys.Count - 1; ++i)
+                        int first = LowerBound(times, Tt(-13f));
+                        for (int i = Mathf.Max(0, first - 1); i < keys.Count - 1 && X(times[i]) <= w + 12f; ++i)
                         {
                             if (keys[i].kind == KeyframeKind.MovingHold || SameValue(keys[i].value, keys[i + 1].value))
                             {
@@ -109,7 +140,7 @@ namespace Timeline
                                 p.globalAlpha = 1f;
                             }
                         }
-                        for (int i = 0; i < keys.Count; ++i)
+                        for (int i = first; i < keys.Count && X(times[i]) <= w + 12f; ++i)
                         {
                             float x = X(times[i]);
                             if (x < -12f || x > w + 12f)
@@ -117,7 +148,7 @@ namespace Timeline
                             Keyframe k = keys[i];
                             DiamondKey(p, x, cy, KindSide(k.kind), KindFill(k.kind), _selectedSet.Contains(k), alpha);
                             KeySetBar(p, k, x, cy, KindSide(k.kind), alpha);
-                            _hits.Add(new Hit { x = x, y = cy, track = tr, t = times[i], keys = new List<KeyValuePair<float, Keyframe>> { new KeyValuePair<float, Keyframe>(times[i], k) } });
+                            _hits.Add(new Hit { x = x, y = cy, track = tr, t = times[i], keys = HitKeys(times[i], k) });
                         }
                         if (T._graphLockedTracks.Contains(tr))
                             p.Rect(0f, y, w, r.h, Pal.Accent(0.05f));
@@ -201,7 +232,8 @@ namespace Timeline
             {
                 IList<float> times = tr.keyframes.Keys;
                 IList<Keyframe> keys = tr.keyframes.Values;
-                for (int i = 0; i < keys.Count; ++i)
+                int first = LowerBound(times, Tt(-13f));
+                for (int i = Mathf.Max(0, first - 1); i < keys.Count && X(times[i]) <= w + 12f; ++i)
                 {
                     float x0 = X(times[i]), x1 = i < keys.Count - 1 ? X(times[i + 1]) : w + 20f;
                     bool held = i == keys.Count - 1;
@@ -233,14 +265,14 @@ namespace Timeline
                         p.Label(label, lx, cy + 0.5f, 10, Pal.C(0xD5D8DD), TextAnchor.MiddleLeft);
                     p.globalAlpha = 1f;
                 }
-                for (int i = 0; i < keys.Count; ++i)
+                for (int i = first; i < keys.Count && X(times[i]) <= w + 12f; ++i)
                 {
                     float x = X(times[i]);
                     if (x < -12f || x > w + 12f)
                         continue;
                     KeySquare(p, x, cy, KindSide(keys[i].kind) - 1f, KindFill(keys[i].kind), _selectedSet.Contains(keys[i]), alpha);
                     KeySetBar(p, keys[i], x, cy, KindSide(keys[i].kind), alpha);
-                    _hits.Add(new Hit { x = x, y = cy, track = tr, t = times[i], keys = new List<KeyValuePair<float, Keyframe>> { new KeyValuePair<float, Keyframe>(times[i], keys[i]) } });
+                    _hits.Add(new Hit { x = x, y = cy, track = tr, t = times[i], keys = HitKeys(times[i], keys[i]) });
                 }
             }
 
@@ -270,10 +302,15 @@ namespace Timeline
             {
                 var byFrame = new Dictionary<int, Column>();
                 float fps = Mathf.Max(T._desiredFrameRate, 1);
+                // Include whole boundary frames so grouped keys retain the same representative time.
+                float min = (Mathf.Floor(Tt(-12f) * fps) - 1f) / fps;
+                float max = (Mathf.Ceil(Tt(GridWidth() + 12f) * fps) + 1f) / fps;
                 foreach (Interpolable tr in tracks)
                 {
-                    foreach (KeyValuePair<float, Keyframe> k in tr.keyframes)
+                    IList<float> times = tr.keyframes.Keys;
+                    for (int i = LowerBound(times, min); i < times.Count && times[i] <= max; ++i)
                     {
+                        var k = new KeyValuePair<float, Keyframe>(times[i], tr.keyframes.Values[i]);
                         int f = Mathf.RoundToInt(k.Key * fps);
                         Column col;
                         if (byFrame.TryGetValue(f, out col) == false)

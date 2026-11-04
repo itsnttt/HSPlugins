@@ -465,8 +465,19 @@ namespace Timeline
                                 var ordered = moves.ToList();
                                 bool forward = dt >= d.applied;
                                 ordered.Sort((a, b) => forward ? b.Value.CompareTo(a.Value) : a.Value.CompareTo(b.Value));
+                                var moved = new HashSet<Keyframe>();
                                 foreach (KeyValuePair<Keyframe, float> move in ordered)
-                                    T.TryMoveKeyframe(move.Key, move.Value);
+                                {
+                                    if (T.TryMoveKeyframe(move.Key, move.Value, false))
+                                        moved.Add(move.Key);
+                                }
+                                // Update selection once, instead of searching it again for every key.
+                                for (int i = 0; i < T._selectedKeyframes.Count; ++i)
+                                {
+                                    Keyframe key = T._selectedKeyframes[i].Value;
+                                    if (moved.Contains(key))
+                                        T._selectedKeyframes[i] = new KeyValuePair<float, Keyframe>(moves[key], key);
+                                }
                                 d.applied = dt;
                             }
                         }
