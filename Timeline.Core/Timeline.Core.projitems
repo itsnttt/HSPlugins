@@ -61,6 +61,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)View\Pal.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)View\Svg.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)View\TimelineView.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)View\ViewDock.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)View\ViewAudio.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)View\ViewChannels.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)View\ViewDialogs.cs" />

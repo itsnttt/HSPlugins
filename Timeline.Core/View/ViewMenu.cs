@@ -328,6 +328,7 @@ namespace Timeline
                 {
                     new MenuItem { label = "Fit all", kb = "Home", act = FitAll },
                     new MenuItem { label = "Frame selected", kb = "F", act = FrameSelected },
+                    new MenuItem { label = "Docked workspace (experimental)", check = _docked, act = ToggleDock },
                     new MenuItem { sep = true },
                 };
                 if (editor == "graph")

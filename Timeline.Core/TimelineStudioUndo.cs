@@ -25,6 +25,9 @@ namespace Timeline
             {
                 if (PointerOverWindow())
                     return true;
+                if (_pwin != null && _pwin.gameObject.activeInHierarchy &&
+                    RectTransformUtility.RectangleContainsScreenPoint(_pwin, Input.mousePosition, null))
+                    return true;
                 foreach (FloatWin w in _floats)
                 {
                     if (w.win != null && w.win.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(w.win, Input.mousePosition, null))

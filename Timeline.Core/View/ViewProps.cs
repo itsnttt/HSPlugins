@@ -1022,6 +1022,8 @@ namespace Timeline
                 _props.Fill();
                 _props.gameObject.SetActive(true);
                 _pwin.gameObject.SetActive(true);
+                ClampPropsWindow();
+                _pwin.SetAsLastSibling();
                 LayoutBody();
                 _props.gameObject.SetActive(true);
                 pps = GridWidth() / span;
@@ -1080,10 +1082,31 @@ namespace Timeline
                     start = _pwin.anchoredPosition;
                     mouse = e.position / canvas.scaleFactor;
                 };
-                drag.onDrag = e => _pwin.anchoredPosition = start + e.position / canvas.scaleFactor - mouse;
+                drag.onDrag = e =>
+                {
+                    _pwin.anchoredPosition = start + e.position / canvas.scaleFactor - mouse;
+                    ClampPropsWindow();
+                };
 
                 _pwinBody = Kit.Node("Body", _pwin).Css(0f, 22f, 0f, 0f);
                 Kit.Ring("Border", _pwin, Pal.C(0x0D0E10), 6f);
+            }
+
+            private void ClampPropsWindow()
+            {
+                if (_pwin == null)
+                    return;
+                Vector2 screen = _canvasRect.rect.size;
+                float width = Mathf.Min(300f, Mathf.Max(1f, screen.x - 8f));
+                float height = Mathf.Min(500f, Mathf.Max(1f, screen.y - 8f));
+                Vector2 size = new Vector2(width, height);
+                if (_pwin.sizeDelta != size)
+                    _pwin.sizeDelta = size;
+                Vector2 position = _pwin.anchoredPosition;
+                position.x = Mathf.Clamp(position.x, -screen.x / 2f + 4f, screen.x / 2f - width - 4f);
+                position.y = Mathf.Clamp(position.y, height + 4f, screen.y - 4f);
+                if (_pwin.anchoredPosition != position)
+                    _pwin.anchoredPosition = position;
             }
 
             /// <summary>.fb: a 20 by 18 button on a floating window's head.</summary>

@@ -80,6 +80,7 @@ namespace Timeline
                     if (canvas == null)
                         return;
                     canvas.gameObject.SetActive(value);
+                    TickDock();
                     if (value)
                     {
                         _rowsDirty = true;
@@ -114,6 +115,7 @@ namespace Timeline
                 _canvasRect = (RectTransform)canvas.transform;
 
                 BuildWindow();
+                BuildDock();
                 BuildTooltip();
                 if (_stateLoaded == false)
                 {
@@ -132,6 +134,7 @@ namespace Timeline
                 bool wasVisible = visible;
                 bool themeOpen = _themeOpen, themeMin = _themeMin;
                 Vector2 position = _win.anchoredPosition;
+                _dockViewport.Restore();
                 Object.Destroy(canvas.gameObject);
                 canvas = null;
                 _rowWidgets.Clear();
@@ -242,6 +245,8 @@ namespace Timeline
                 };
                 drag.onDrag = e =>
                 {
+                    if (_docked)
+                        return;
                     Vector2 d = e.position / canvas.scaleFactor - startMouse;
                     Vector2 max = _canvasRect.rect.size - new Vector2(20f, 20f);
                     winW = Mathf.Round(Mathf.Clamp(startSize.x + d.x, 760f, max.x));
@@ -252,9 +257,10 @@ namespace Timeline
 
             private void ApplyWindowSize()
             {
+                if (_win.sizeDelta.x != winW)
+                    _headerDirty = true;
                 _win.sizeDelta = new Vector2(winW, winH);
                 LayoutShadow();
-                _headerDirty = true;
                 _rowsDirty = true;
                 LayoutBody();
             }
@@ -269,6 +275,9 @@ namespace Timeline
                     canvas.scaleFactor = EffectiveUIScale();
                 if (visible == false)
                     return;
+
+                TickDock();
+                ClampPropsWindow();
 
                 float alpha = Mathf.Clamp(ConfigUIOpacity.Value, 0.1f, 1f);
                 if (ConfigUIOpacityAway.Value)

@@ -63,7 +63,7 @@ namespace Timeline
     {
         #region Constants
         public const string Name = "Timeline";
-        public const string Version = "2.0.0";
+        public const string Version = "2.1.0";
         /// <summary>
         /// Still the original's, deliberately, and it has to stay that way.
         ///

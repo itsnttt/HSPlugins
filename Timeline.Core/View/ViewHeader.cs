@@ -44,12 +44,21 @@ namespace Timeline
                 {
                     startPos = _win.anchoredPosition;
                     startMouse = e.position / canvas.scaleFactor;
+                    if (_docked)
+                        _dockResizing = true;
                 };
                 drag.onDrag = e =>
                 {
+                    if (_docked)
+                    {
+                        ResizeDock((startPos.y + e.position.y / canvas.scaleFactor - startMouse.y)
+                            * canvas.scaleFactor / Mathf.Max(Screen.height, 1));
+                        return;
+                    }
                     _win.anchoredPosition = startPos + e.position / canvas.scaleFactor - startMouse;
                     LayoutShadow();
                 };
+                drag.onEndDrag = e => EndDockResize();
 
                 // padding: 0 4px; gap: 2px, over the 25 pixels above the border.
                 _hdrRow = Kit.Node("Row", _hdr).Fill(4f, 0f, 4f, 1f);

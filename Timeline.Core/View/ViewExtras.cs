@@ -86,9 +86,12 @@ namespace Timeline
             /// <summary>Where the window was and how it was set up, as one line in the config file.</summary>
             private string SerializeState()
             {
+                Vector2 position = _docked ? _floatingPosition : _win.anchoredPosition;
+                Vector2 size = _docked ? _floatingSize : new Vector2(winW, winH);
                 var parts = new List<string>
                 {
-                    "x=" + F(_win.anchoredPosition.x), "y=" + F(_win.anchoredPosition.y), "w=" + F(winW), "h=" + F(winH),
+                    "x=" + F(position.x), "y=" + F(position.y), "w=" + F(size.x), "h=" + F(size.y),
+                    "dock=" + (_docked ? 1 : 0), "dockHeight=" + F(_dockHeight), "dockSide=" + F(_dockSideWidth),
                     "chan=" + F(chanW), "props=" + (props ? 1 : 0), "float=" + (_propsFloat ? 1 : 0),
                     "editor=" + editor, "compact=" + (compact ? 1 : 0), "summary=" + (showSummary ? 1 : 0),
                     "groupKeys=" + groupKeys, "list=" + listMode, "frames=" + (showFrames ? 1 : 0), "snap=" + snap, "handles=" + (showHandles ? 1 : 0),
@@ -167,6 +170,11 @@ namespace Timeline
                 if (d.ContainsKey("px"))
                     _savedPwin = new Vector2(num("px", 0f), num("py", 0f));
                 ApplyWindowSize();
+                _floatingPosition = _win.anchoredPosition;
+                _floatingSize = new Vector2(winW, winH);
+                _dockHeight = Mathf.Clamp(num("dockHeight", 0.3f), 0.15f, 0.65f);
+                _dockSideWidth = Mathf.Clamp(num("dockSide", 0.25f), 0f, 0.45f);
+                _docked = num("dock", 0f) > 0.5f;
                 if (num("float", 0) > 0.5f)
                     FloatProps();
             }
