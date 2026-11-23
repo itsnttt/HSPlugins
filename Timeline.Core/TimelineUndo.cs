@@ -21,7 +21,6 @@ namespace Timeline
         private sealed class TrackState
         {
             public Interpolable interpolable;
-            public GroupNode<InterpolableGroup> parent;
             public bool enabled;
             public bool smooth;
             public TrackExtrapolation extrapolation;
@@ -75,9 +74,17 @@ namespace Timeline
             public Keyframe[] copies;
         }
 
+        private sealed class TrackTreeState
+        {
+            public Interpolable track;
+            public InterpolableGroup group;
+            public List<TrackTreeState> children;
+        }
+
         private sealed class HistoryState
         {
             public List<TrackState> tracks;
+            public List<TrackTreeState> trackTree;
             public List<StripState> strips;
             /// <summary>The strip being edited then, and the tracks' own keys it had put aside.</summary>
             public Nla.MotionStrip tweak;
@@ -159,7 +166,6 @@ namespace Timeline
                 var track = new TrackState
                 {
                     interpolable = interpolable,
-                    parent = _interpolablesTree.GetLeafNode(interpolable)?.parent as GroupNode<InterpolableGroup>,
                     enabled = interpolable.enabled,
                     smooth = interpolable.smooth,
                     extrapolation = interpolable.extrapolation,
@@ -199,7 +205,8 @@ namespace Timeline
 
             return new HistoryState
             {
-                tracks = tracks, strips = CaptureStrips(), markers = markers, label = label,
+                tracks = tracks, trackTree = CaptureTrackTree(_interpolablesTree.tree),
+                strips = CaptureStrips(), markers = markers, label = label,
                 tweak = _tweakStrip,
                 tweakStash = _tweakStash.Select(p => new KeyValuePair<Interpolable, KeyValuePair<float, Keyframe>[]>(p.Key,
                         p.Value.Select(k => new KeyValuePair<float, Keyframe>(k.Key, new Keyframe(k.Value))).ToArray())).ToList(),
@@ -209,6 +216,40 @@ namespace Timeline
                 audio = CaptureAudio(),
                 duration = _duration
             };
+        }
+
+        private static List<TrackTreeState> CaptureTrackTree(List<INode> nodes)
+        {
+            var states = new List<TrackTreeState>(nodes.Count);
+            foreach (INode node in nodes)
+            {
+                if (node.type == INodeType.Group)
+                {
+                    var group = (GroupNode<InterpolableGroup>)node;
+                    states.Add(new TrackTreeState
+                    {
+                        group = group.obj,
+                        children = CaptureTrackTree(group.children)
+                    });
+                }
+                else
+                    states.Add(new TrackTreeState { track = ((LeafNode<Interpolable>)node).obj });
+            }
+            return states;
+        }
+
+        private void RestoreTrackTree(List<TrackTreeState> states, GroupNode<InterpolableGroup> parent = null)
+        {
+            foreach (TrackTreeState state in states)
+            {
+                if (state.children != null)
+                {
+                    GroupNode<InterpolableGroup> group = _interpolablesTree.AddGroup(state.group, parent);
+                    RestoreTrackTree(state.children, group);
+                }
+                else if (_interpolables.ContainsKey(state.track.GetHashCode()))
+                    _interpolablesTree.AddLeaf(state.track, parent);
+            }
         }
 
         private List<StripState> CaptureStrips()
@@ -322,17 +363,9 @@ namespace Timeline
                 _selectedKeyframes.Clear();
                 _selectedInterpolables.Clear();
 
-                // A group may have been deleted since the snapshot; re-parenting to it would strand the
-                // track outside the tree, so anything dangling goes back at the root.
-                var liveGroups = new HashSet<IGroupNode>();
-                _interpolablesTree.Recurse((node, depth) =>
-                {
-                    if (node.type == INodeType.Group)
-                        liveGroups.Add((IGroupNode)node);
-                });
-
-                foreach (Interpolable interpolable in new List<Interpolable>(_interpolables.Values))
-                    _interpolablesTree.RemoveLeaf(interpolable);
+                // Removing leaves prunes empty groups. Restore the saved hierarchy as a whole
+                // so no track can be attached to a group outside the visible tree.
+                _interpolablesTree.Clear();
                 _interpolables.Clear();
 
                 foreach (TrackState track in state.tracks)
@@ -362,9 +395,9 @@ namespace Timeline
                     if (_interpolables.ContainsKey(hash))
                         continue;
                     _interpolables.Add(hash, interpolable);
-                    _interpolablesTree.AddLeaf(interpolable, track.parent != null && liveGroups.Contains(track.parent) ? track.parent : null);
                 }
 
+                RestoreTrackTree(state.trackTree);
                 RestoreStrips(state.strips);
                 // Tweak mode as it was: the strip then being edited, and the tracks' own keys put aside.
                 _tweakStrip = state.tweak != null && _strips.Contains(state.tweak) ? state.tweak : null;

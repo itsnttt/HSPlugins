@@ -973,6 +973,7 @@ namespace Timeline
                         act = () => Confirm("Delete group", "“" + r.label + "” and the " + r.tracks.Count + " track(s) in it are removed, with all their keys.", "Delete", () =>
                         {
                             List<Interpolable> inside = new List<Interpolable>(r.tracks);
+                            T.RecordUndo("Delete group");
                             T._interpolablesTree.Remove(group);
                             T.RemoveInterpolables(inside);
                         })
