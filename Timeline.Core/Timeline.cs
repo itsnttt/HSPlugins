@@ -732,6 +732,9 @@ namespace Timeline
             _selectedGuideObjects = (HashSet<GuideObject>)GuideObjectManager.Instance.GetPrivate("hashSelectObject");
 
             BuildView();
+#if BEPINEX
+            InitHideUIShortcut();
+#endif
             InitShallty();
             UpdateInterpolablesView();
 

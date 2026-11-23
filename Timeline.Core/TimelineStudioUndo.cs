@@ -38,6 +38,35 @@ namespace Timeline
         }
 
 #if BEPINEX
+        private bool _hideUIShortcutPatched;
+
+        private void InitHideUIShortcut()
+        {
+            if (_hideUIShortcutPatched)
+                return;
+            var type = AccessTools.TypeByName("HideAllUI.HideStudioUI");
+            if (type == null)
+                return;
+            var toggle = AccessTools.DeclaredMethod(type, "ToggleUI");
+            if (toggle == null)
+                return;
+            try
+            {
+                new Harmony(GUID).Patch(toggle,
+                    prefix: new HarmonyMethod(AccessTools.DeclaredMethod(typeof(Timeline), nameof(AllowStudioUIHide))));
+                _hideUIShortcutPatched = true;
+            }
+            catch (System.Exception e)
+            {
+                Logger.LogWarning("Could not isolate Timeline's Space shortcut from HideAllUI: " + e.Message);
+            }
+        }
+
+        private static bool AllowStudioUIHide()
+        {
+            return Input.GetKeyDown(KeyCode.Space) == false || _self == null || _self.PointerOverTimeline() == false;
+        }
+
         [HarmonyPatch(typeof(UndoRedoManager), nameof(UndoRedoManager.Undo))]
         private static class UndoRedoManager_Undo_Patches
         {
