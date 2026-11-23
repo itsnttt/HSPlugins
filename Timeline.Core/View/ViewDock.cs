@@ -164,7 +164,9 @@ namespace Timeline
             private sealed class ToolbarPlacement
             {
                 public Vector2 position;
-                public Vector3 scale;
+                public Vector3 scale, appliedScale;
+                public Vector2 appliedPosition, screenLow, screenHigh;
+                public bool applied, followsDock;
             }
 
             private readonly Dictionary<RectTransform, ToolbarPlacement> _toolbarPlacements = new Dictionary<RectTransform, ToolbarPlacement>();
@@ -182,59 +184,94 @@ namespace Timeline
             public Rect viewport;
             public bool active;
 
+
             public void PlaceToolbar(float bottom)
             {
+                bottom = AboveGuidePanel(bottom, _guideInput);
+                bottom = AboveGuidePanel(bottom, _guideExtra);
                 Vector2 screen = new Vector2(Screen.width, Screen.height);
-                if (bottom == _toolbarBottom && screen == _toolbarScreen && Time.unscaledTime - _toolbarPlacedAt < 0.5f)
+                bool changed = false;
+                foreach (KeyValuePair<RectTransform, ToolbarPlacement> pair in _toolbarPlacements)
+                {
+                    if (pair.Key != null && pair.Value.applied &&
+                        (pair.Key.anchoredPosition != pair.Value.appliedPosition || pair.Key.localScale != pair.Value.appliedScale))
+                        changed = true;
+                }
+                if (!changed && bottom == _toolbarBottom && screen == _toolbarScreen && Time.unscaledTime - _toolbarPlacedAt < 0.5f)
                     return;
                 _toolbarPlacedAt = Time.unscaledTime;
                 _toolbarBottom = bottom;
                 _toolbarScreen = screen;
+
+                float low = float.MaxValue, high = float.MinValue, left = float.MaxValue;
                 foreach (KeyValuePair<RectTransform, ToolbarPlacement> pair in _toolbarPlacements)
                 {
-                    RectTransform root = pair.Key;
-                    RectTransform parent = root == null ? null : root.parent as RectTransform;
-                    if (parent == null)
+                    RectTransform rect = pair.Key;
+                    ToolbarPlacement state = pair.Value;
+                    if (rect == null)
                         continue;
-                    root.anchoredPosition = pair.Value.position;
-                    root.localScale = pair.Value.scale;
-                    Canvas canvas = root.GetComponentInParent<Canvas>();
+                    // A KKAPI relayout or a user drag supplies a new saved placement.
+                    if (state.applied && rect.anchoredPosition != state.appliedPosition)
+                        state.position = rect.anchoredPosition;
+                    if (state.applied && rect.localScale != state.appliedScale)
+                        state.scale = rect.localScale;
+                    rect.anchoredPosition = state.position;
+                    rect.localScale = state.scale;
+                    Canvas canvas = rect.GetComponentInParent<Canvas>();
                     Camera uiCamera = canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
-                    float low, high;
-                    if (ToolbarBounds(root, uiCamera, out low, out high) == false)
-                        continue;
-                    float factor = Mathf.Min(1f, Mathf.Max(1f, Screen.height - bottom - 4f) / Mathf.Max(1f, high - low));
-                    if (factor < 1f)
+                    rect.GetWorldCorners(_guideCorners);
+                    state.screenLow = RectTransformUtility.WorldToScreenPoint(uiCamera, _guideCorners[0]);
+                    state.screenHigh = RectTransformUtility.WorldToScreenPoint(uiCamera, _guideCorners[2]);
+                    state.followsDock = rect.gameObject.activeInHierarchy &&
+                        (state.screenLow.x + state.screenHigh.x) * 0.5f < screen.x * 0.5f;
+                    if (state.followsDock)
                     {
-                        Vector3 scale = pair.Value.scale;
-                        root.localScale = new Vector3(scale.x * factor, scale.y * factor, scale.z);
-                        ToolbarBounds(root, uiCamera, out low, out high);
+                        low = Mathf.Min(low, state.screenLow.y);
+                        high = Mathf.Max(high, state.screenHigh.y);
+                        left = Mathf.Min(left, state.screenLow.x);
                     }
-                    float delta = Mathf.Max(0f, bottom - low);
-                    Vector2 origin = RectTransformUtility.WorldToScreenPoint(uiCamera, root.position);
-                    Vector2 from, to;
-                    RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, origin, uiCamera, out from);
-                    RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, origin + Vector2.up * delta, uiCamera, out to);
-                    root.anchoredPosition += to - from;
+                }
+
+                float factor = Mathf.Min(1f, Mathf.Max(1f, screen.y - bottom - 4f) / Mathf.Max(1f, high - low));
+                float targetLow = low == float.MaxValue ? 0f :
+                    Mathf.Clamp(low, bottom, Mathf.Max(bottom, screen.y - 4f - (high - low) * factor));
+                foreach (KeyValuePair<RectTransform, ToolbarPlacement> pair in _toolbarPlacements)
+                {
+                    RectTransform rect = pair.Key;
+                    ToolbarPlacement state = pair.Value;
+                    if (rect == null)
+                        continue;
+                    RectTransform parent = rect.parent as RectTransform;
+                    if (state.followsDock && parent != null)
+                    {
+                        rect.localScale = new Vector3(state.scale.x * factor, state.scale.y * factor, state.scale.z);
+                        Canvas canvas = rect.GetComponentInParent<Canvas>();
+                        Camera uiCamera = canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+                        rect.GetWorldCorners(_guideCorners);
+                        Vector2 current = RectTransformUtility.WorldToScreenPoint(uiCamera, _guideCorners[0]);
+                        Vector2 target = new Vector2(left + (state.screenLow.x - left) * factor,
+                            targetLow + (state.screenLow.y - low) * factor);
+                        Vector2 from, to;
+                        RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, current, uiCamera, out from);
+                        RectTransformUtility.ScreenPointToLocalPointInRectangle(parent, target, uiCamera, out to);
+                        rect.anchoredPosition += to - from;
+                    }
+                    state.appliedPosition = rect.anchoredPosition;
+                    state.appliedScale = rect.localScale;
+                    state.applied = true;
                 }
             }
 
-            private bool ToolbarBounds(RectTransform root, Camera uiCamera, out float low, out float high)
+            private float AboveGuidePanel(float bottom, RectTransform panel)
             {
-                low = float.MaxValue;
-                high = float.MinValue;
-                foreach (GameObject obj in _toolbarLayers.Keys)
-                {
-                    if (obj == null || obj.activeInHierarchy == false || obj.transform.parent != root)
-                        continue;
-                    RectTransform rect = obj.transform as RectTransform;
-                    if (rect == null)
-                        continue;
-                    rect.GetWorldCorners(_guideCorners);
-                    low = Mathf.Min(low, RectTransformUtility.WorldToScreenPoint(uiCamera, _guideCorners[0]).y);
-                    high = Mathf.Max(high, RectTransformUtility.WorldToScreenPoint(uiCamera, _guideCorners[1]).y);
-                }
-                return low != float.MaxValue;
+                if (panel == null || panel.gameObject.activeInHierarchy == false)
+                    return bottom;
+                Canvas canvas = panel.GetComponentInParent<Canvas>();
+                if (canvas != null && canvas.isActiveAndEnabled == false)
+                    return bottom;
+                Camera uiCamera = canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+                panel.GetWorldCorners(_guideCorners);
+                return Mathf.Max(bottom, RectTransformUtility.WorldToScreenPoint(uiCamera, _guideCorners[1]).y + 6f);
             }
 
             public void PlaceGuideInput(float bottom)
@@ -303,7 +340,7 @@ namespace Timeline
                     if (button.ButtonObject == null)
                         continue;
                     GameObject obj = button.ButtonObject.gameObject;
-                    RectTransform root = obj.transform.parent as RectTransform;
+                    RectTransform root = obj.transform as RectTransform;
                     if (root != null && _toolbarPlacements.ContainsKey(root) == false)
                     {
                         _toolbarPlacements.Add(root, new ToolbarPlacement { position = root.anchoredPosition, scale = root.localScale });
